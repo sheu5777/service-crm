@@ -1,0 +1,60 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function memberDoc(workspaceId) {
+      return get(/databases/$(database)/documents/workspaces/$(workspaceId)/members/$(request.auth.uid));
+    }
+
+    function isActiveMember(workspaceId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/workspaces/$(workspaceId)/members/$(request.auth.uid))
+        && memberDoc(workspaceId).data.active == true;
+    }
+
+    function role(workspaceId) {
+      return memberDoc(workspaceId).data.role;
+    }
+
+    function canEdit(workspaceId) {
+      return isActiveMember(workspaceId)
+        && role(workspaceId) in ['admin', 'director', 'assistant'];
+    }
+
+    function isAdmin(workspaceId) {
+      return isActiveMember(workspaceId)
+        && role(workspaceId) == 'admin';
+    }
+
+    match /workspaces/{workspaceId}/members/{memberId} {
+      allow read: if isActiveMember(workspaceId);
+      allow create, update, delete: if isAdmin(workspaceId);
+    }
+
+    match /workspaces/{workspaceId}/people/{docId} {
+      allow read: if isActiveMember(workspaceId);
+      allow create, update, delete: if canEdit(workspaceId);
+    }
+
+    match /workspaces/{workspaceId}/cases/{docId} {
+      allow read: if isActiveMember(workspaceId);
+      allow create, update, delete: if canEdit(workspaceId);
+    }
+
+    match /workspaces/{workspaceId}/tasks/{docId} {
+      allow read: if isActiveMember(workspaceId);
+      allow create, update, delete: if canEdit(workspaceId);
+    }
+
+    match /workspaces/{workspaceId}/auditLogs/{logId} {
+      allow read: if isAdmin(workspaceId);
+      allow create: if canEdit(workspaceId)
+        && request.resource.data.actorUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+  }
+}

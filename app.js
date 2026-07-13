@@ -1,168 +1,150 @@
-const KEY='service_office_crm_v2';
-const today=()=>new Date().toISOString().slice(0,10);
-const now=()=>new Date().toISOString();
-const uid=()=>crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2);
+import { firebaseConfig, WORKSPACE_ID } from './firebase-config.js';
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js';
+import { getFirestore, collection, doc, addDoc, setDoc, deleteDoc, getDoc, onSnapshot, serverTimestamp, query, orderBy, limit } from 'https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js';
+
 const $=id=>document.getElementById(id);
-let db=load();
+const today=()=>new Date().toISOString().slice(0,10);
+const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+const app=initializeApp(firebaseConfig);
+const auth=getAuth(app), db=getFirestore(app), provider=new GoogleAuthProvider();
+let people=[], cases=[], tasks=[], members=[], auditLogs=[], currentMember=null, currentUser=null, unsubs=[];
 
-function defaultDB(){return{people:[],cases:[],tasks:[],meta:{version:2}}}
-function load(){try{return JSON.parse(localStorage.getItem(KEY))||defaultDB()}catch{return defaultDB()}}
-function save(){localStorage.setItem(KEY,JSON.stringify(db))}
-function personName(id){return db.people.find(p=>p.id===id)?.name||'未指定'}
-function caseTitle(id){return db.cases.find(c=>c.id===id)?.title||'未指定'}
-function formatDate(d){return d||'未設定'}
-function badgeClass(s){return s==='已完成'?'green':s==='處理中'?'blue':s==='待回覆'?'orange':s==='緊急'?'red':''}
-function escapeHTML(s=''){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
+const col=name=>collection(db,'workspaces',WORKSPACE_ID,name);
+const refs={people:col('people'),cases:col('cases'),tasks:col('tasks'),members:col('members'),audit:col('auditLogs')};
+$('workspaceId').textContent=WORKSPACE_ID;
 
-const viewInfo={
- dashboard:['儀表板','今天的服務案件與追蹤重點'],
- people:['選民資料','管理聯絡方式、里別與服務備註'],
- cases:['服務案件','追蹤案件狀態、承辦人與處理紀錄'],
- tasks:['追蹤任務','管理回電、會勘與重要提醒'],
- reports:['統計報表','查看案件分布與服務量'],
- settings:['設定與備份','資料匯出、匯入與安全設定']
-};
+const roleNames={admin:'管理員',director:'主任',assistant:'助理',volunteer:'志工'};
+const canEdit=()=>['admin','director','assistant'].includes(currentMember?.role);
+const isAdmin=()=>currentMember?.role==='admin';
 
-document.querySelectorAll('.nav-btn').forEach(btn=>btn.addEventListener('click',()=>{
-  document.querySelectorAll('.nav-btn').forEach(x=>x.classList.remove('active'));
+$('loginBtn').onclick=async()=>{try{await signInWithPopup(auth,provider)}catch(e){$('loginError').textContent=e.message;$('loginError').classList.remove('hidden')}};
+$('logoutBtn').onclick=$('blockedLogoutBtn').onclick=()=>signOut(auth);
+
+onAuthStateChanged(auth,async user=>{
+  cleanup();
+  currentUser=user;
+  if(!user){show('loginView');return}
+  const memberSnap=await getDoc(doc(refs.members,user.uid));
+  if(!memberSnap.exists() || memberSnap.data().active!==true){
+    $('blockedEmail').textContent=user.email||'';
+    show('blockedView');
+    return;
+  }
+  currentMember={id:user.uid,...memberSnap.data()};
+  $('userName').textContent=user.displayName||user.email;
+  $('roleBadge').textContent=roleNames[currentMember.role]||currentMember.role;
+  document.querySelectorAll('.admin-only').forEach(x=>x.classList.toggle('hidden',!isAdmin()));
+  document.querySelectorAll('.editor-only').forEach(x=>x.classList.toggle('hidden',!canEdit()));
+  show('appView');
+  subscribe();
+});
+
+function show(id){
+  ['loginView','blockedView','appView'].forEach(x=>$(x).classList.add('hidden'));
+  $(id).classList.remove('hidden');
+}
+function cleanup(){unsubs.forEach(f=>f());unsubs=[];people=[];cases=[];tasks=[];members=[];auditLogs=[];currentMember=null}
+
+function subscribe(){
+  $('syncStatus').textContent='同步中…';
+  unsubs.push(onSnapshot(refs.people,s=>{people=s.docs.map(d=>({id:d.id,...d.data()}));renderAll()}));
+  unsubs.push(onSnapshot(refs.cases,s=>{cases=s.docs.map(d=>({id:d.id,...d.data()}));renderAll()}));
+  unsubs.push(onSnapshot(refs.tasks,s=>{tasks=s.docs.map(d=>({id:d.id,...d.data()}));renderAll();$('syncStatus').textContent='已同步至雲端'}));
+  if(isAdmin()){
+    unsubs.push(onSnapshot(refs.members,s=>{members=s.docs.map(d=>({id:d.id,...d.data()}));renderMembers()}));
+    unsubs.push(onSnapshot(query(refs.audit,orderBy('createdAt','desc'),limit(100)),s=>{auditLogs=s.docs.map(d=>({id:d.id,...d.data()}));renderAudit()}));
+  }
+}
+const pname=id=>people.find(p=>p.id===id)?.name||'未指定';
+const ctitle=id=>cases.find(c=>c.id===id)?.title||'未指定';
+
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
   document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
-  btn.classList.add('active');
-  const v=btn.dataset.view;
-  $('view-'+v).classList.add('active');
-  $('pageTitle').textContent=viewInfo[v][0];
-  $('pageSubtitle').textContent=viewInfo[v][1];
-  renderAll();
-}));
+  b.classList.add('active');$('view-'+b.dataset.view).classList.add('active');
+});
+document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>$(b.dataset.close).close());
+
+async function logAction(action,entityType,entityId,summary){
+  await addDoc(refs.audit,{
+    action,entityType,entityId,summary,
+    actorUid:currentUser.uid,
+    actorEmail:currentUser.email||'',
+    actorName:currentUser.displayName||'',
+    createdAt:serverTimestamp()
+  });
+}
 
 function renderAll(){
-  renderSelects();
-  renderDashboard();
-  renderPeople();
-  renderCases();
-  renderTasks();
-  renderReports();
+  $('statPeople').textContent=people.length;
+  $('statCases').textContent=cases.filter(c=>c.status!=='已完成').length;
+  $('statTasks').textContent=tasks.filter(t=>!t.done&&t.dueDate&&t.dueDate<=today()).length;
+  $('statRate').textContent=cases.length?Math.round(cases.filter(c=>c.status==='已完成').length/cases.length*100)+'%':'0%';
+
+  $('recentCases').innerHTML=cases.slice(0,5).map(c=>card(c.title,`${pname(c.personId)}｜${c.assignee||'未指定'}`,c.status)).join('')||'<p class="muted">目前沒有案件</p>';
+  $('recentTasks').innerHTML=tasks.filter(t=>!t.done).slice(0,5).map(t=>card(t.title,`${t.owner||'未指定'}｜${t.dueDate||'未設定'}`,t.priority)).join('')||'<p class="muted">目前沒有追蹤</p>';
+
+  const pq=$('peopleSearch').value.toLowerCase();
+  $('peopleList').innerHTML=people.filter(p=>[p.name,p.phone,p.village].join(' ').toLowerCase().includes(pq)).map(p=>`
+    <article class="card"><div><h3>${esc(p.name)}</h3><div class="muted">${esc([p.village,p.phone,p.address].filter(Boolean).join('｜'))}</div></div>
+    ${canEdit()?`<button class="btn secondary" onclick="openPerson('${p.id}')">編輯</button>`:''}</article>`).join('')||'<div class="panel muted">尚無民眾資料</div>';
+
+  const cq=$('caseSearch').value.toLowerCase(), sf=$('caseStatusFilter').value;
+  $('caseList').innerHTML=cases.filter(c=>[c.title,c.description,pname(c.personId)].join(' ').toLowerCase().includes(cq)&&(!sf||c.status===sf)).map(c=>`
+    <article class="card"><div><h3>${esc(c.title)}</h3><div class="muted">${esc(pname(c.personId))}｜${esc(c.category)}｜${esc(c.assignee||'未指定')}</div><span class="badge">${esc(c.status)}</span></div>
+    ${canEdit()?`<button class="btn secondary" onclick="openCase('${c.id}')">編輯</button>`:''}</article>`).join('')||'<div class="panel muted">尚無案件資料</div>';
+
+  const tq=$('taskSearch').value.toLowerCase();
+  $('taskList').innerHTML=tasks.filter(t=>t.title.toLowerCase().includes(tq)).map(t=>`
+    <article class="card"><div><h3>${t.done?'✅ ':''}${esc(t.title)}</h3><div class="muted">${esc(t.owner||'未指定')}｜${esc(t.dueDate||'未設定')}｜${esc(ctitle(t.caseId))}</div></div>
+    ${canEdit()?`<button class="btn secondary" onclick="openTask('${t.id}')">編輯</button>`:''}</article>`).join('')||'<div class="panel muted">尚無追蹤任務</div>';
+
+  $('casePersonId').innerHTML='<option value="">未指定</option>'+people.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  $('taskCaseId').innerHTML='<option value="">未指定</option>'+cases.map(c=>`<option value="${c.id}">${esc(c.title)}</option>`).join('');
+}
+function card(title,meta,badge){return `<div class="card"><div><h3>${esc(title)}</h3><div class="muted">${esc(meta)}</div></div><span class="badge">${esc(badge||'')}</span></div>`}
+
+function renderMembers(){
+  $('memberList').innerHTML=members.map(m=>`<article class="card"><div><h3>${esc(m.email||m.id)}</h3><div class="muted">${esc(roleNames[m.role]||m.role)}｜${m.active?'啟用':'停用'}</div></div><button class="btn secondary" onclick="toggleMember('${m.id}',${m.active!==true})">${m.active?'停用':'啟用'}</button></article>`).join('');
+}
+function renderAudit(){
+  $('auditList').innerHTML=auditLogs.map(a=>`<article class="card"><div><h3>${esc(a.action)}｜${esc(a.entityType)}</h3><div class="muted">${esc(a.summary||'')}<br>${esc(a.actorEmail||'')}｜${a.createdAt?.toDate?.().toLocaleString('zh-TW')||'同步中'}</div></div></article>`).join('')||'<p class="muted">尚無操作紀錄</p>';
 }
 
-function renderSelects(){
-  const villages=[...new Set(db.people.map(p=>p.village).filter(Boolean))].sort();
-  const categories=[...new Set(db.cases.map(c=>c.category).filter(Boolean))].sort();
-  const pv=$('peopleVillageFilter').value, cc=$('caseCategoryFilter').value;
-  $('peopleVillageFilter').innerHTML='<option value="">全部里別</option>'+villages.map(v=>`<option>${escapeHTML(v)}</option>`).join('');
-  $('caseCategoryFilter').innerHTML='<option value="">全部類別</option>'+categories.map(v=>`<option>${escapeHTML(v)}</option>`).join('');
-  if(villages.includes(pv))$('peopleVillageFilter').value=pv;
-  if(categories.includes(cc))$('caseCategoryFilter').value=cc;
+window.openPerson=id=>{if(!canEdit())return;$('personForm').reset();$('personId').value='';$('deletePersonBtn').classList.toggle('hidden',!id);if(id){const p=people.find(x=>x.id===id);$('personId').value=id;$('personName').value=p.name||'';$('personPhone').value=p.phone||'';$('personVillage').value=p.village||'';$('personAddress').value=p.address||'';$('personPref').value=p.contactPref||'';$('personNotes').value=p.notes||'';$('personConsent').checked=!!p.consent}$('personDialog').showModal()};
+window.openCase=id=>{if(!canEdit())return;$('caseForm').reset();$('caseId').value='';$('deleteCaseBtn').classList.toggle('hidden',!id);if(id){const c=cases.find(x=>x.id===id);$('caseId').value=id;$('caseTitle').value=c.title||'';$('casePersonId').value=c.personId||'';$('caseCategory').value=c.category||'其他';$('caseStatus').value=c.status||'待處理';$('caseAssignee').value=c.assignee||'';$('caseFollowupDate').value=c.followupDate||'';$('caseDescription').value=c.description||'';$('caseResolution').value=c.resolution||''}$('caseDialog').showModal()};
+window.openTask=id=>{if(!canEdit())return;$('taskForm').reset();$('taskId').value='';$('deleteTaskBtn').classList.toggle('hidden',!id);if(id){const t=tasks.find(x=>x.id===id);$('taskId').value=id;$('taskTitle').value=t.title||'';$('taskDueDate').value=t.dueDate||'';$('taskPriority').value=t.priority||'普通';$('taskCaseId').value=t.caseId||'';$('taskOwner').value=t.owner||'';$('taskDone').checked=!!t.done}$('taskDialog').showModal()};
 
-  $('casePersonId').innerHTML='<option value="">未指定</option>'+db.people.sort((a,b)=>a.name.localeCompare(b.name,'zh-Hant')).map(p=>`<option value="${p.id}">${escapeHTML(p.name)}${p.village?'｜'+escapeHTML(p.village):''}</option>`).join('');
-  $('taskCaseId').innerHTML='<option value="">未指定</option>'+db.cases.map(c=>`<option value="${c.id}">${escapeHTML(c.title)}</option>`).join('');
-}
+$('addPersonBtn').onclick=()=>openPerson('');
+$('addCaseBtn').onclick=()=>openCase('');
+$('addTaskBtn').onclick=()=>openTask('');
+['peopleSearch','caseSearch','taskSearch'].forEach(id=>$(id).oninput=renderAll);
+$('caseStatusFilter').onchange=renderAll;
 
-function renderDashboard(){
-  $('statPeople').textContent=db.people.length;
-  const open=db.cases.filter(c=>c.status!=='已完成').length;
-  $('statOpenCases').textContent=open;
-  const due=db.tasks.filter(t=>!t.done&&t.dueDate&&t.dueDate<=today()).length;
-  $('statDueTasks').textContent=due;
-  $('statDoneRate').textContent=db.cases.length?Math.round(db.cases.filter(c=>c.status==='已完成').length/db.cases.length*100)+'%':'0%';
+$('personForm').onsubmit=async e=>{e.preventDefault();const id=$('personId').value,d={name:$('personName').value.trim(),phone:$('personPhone').value.trim(),village:$('personVillage').value.trim(),address:$('personAddress').value.trim(),contactPref:$('personPref').value,notes:$('personNotes').value.trim(),consent:$('personConsent').checked,updatedAt:serverTimestamp(),updatedBy:currentUser.uid};if(id){await setDoc(doc(refs.people,id),d,{merge:true});await logAction('修改','民眾',id,d.name)}else{const r=await addDoc(refs.people,{...d,createdAt:serverTimestamp(),createdBy:currentUser.uid});await logAction('新增','民眾',r.id,d.name)}$('personDialog').close()};
+$('caseForm').onsubmit=async e=>{e.preventDefault();const id=$('caseId').value,d={title:$('caseTitle').value.trim(),personId:$('casePersonId').value,category:$('caseCategory').value,status:$('caseStatus').value,assignee:$('caseAssignee').value.trim(),followupDate:$('caseFollowupDate').value,description:$('caseDescription').value.trim(),resolution:$('caseResolution').value.trim(),updatedAt:serverTimestamp(),updatedBy:currentUser.uid};if(id){await setDoc(doc(refs.cases,id),d,{merge:true});await logAction('修改','案件',id,d.title)}else{const r=await addDoc(refs.cases,{...d,createdAt:serverTimestamp(),createdBy:currentUser.uid});await logAction('新增','案件',r.id,d.title)}$('caseDialog').close()};
+$('taskForm').onsubmit=async e=>{e.preventDefault();const id=$('taskId').value,d={title:$('taskTitle').value.trim(),dueDate:$('taskDueDate').value,priority:$('taskPriority').value,caseId:$('taskCaseId').value,owner:$('taskOwner').value.trim(),done:$('taskDone').checked,updatedAt:serverTimestamp(),updatedBy:currentUser.uid};if(id){await setDoc(doc(refs.tasks,id),d,{merge:true});await logAction('修改','追蹤',id,d.title)}else{const r=await addDoc(refs.tasks,{...d,createdAt:serverTimestamp(),createdBy:currentUser.uid});await logAction('新增','追蹤',r.id,d.title)}$('taskDialog').close()};
 
-  const tasks=db.tasks.filter(t=>!t.done).sort((a,b)=>(a.dueDate||'9999').localeCompare(b.dueDate||'9999')).slice(0,5);
-  $('dashboardTasks').innerHTML=tasks.length?tasks.map(t=>`<div class="mini-card"><div><strong>${escapeHTML(t.title)}</strong><span class="muted">${formatDate(t.dueDate)}｜${escapeHTML(t.owner||'未指定')}</span></div><span class="badge ${t.dueDate&&t.dueDate<=today()?'red':badgeClass(t.priority)}">${escapeHTML(t.priority||'普通')}</span></div>`).join(''):'<div class="muted">目前沒有待追蹤事項</div>';
+$('deletePersonBtn').onclick=async()=>{const id=$('personId').value,p=people.find(x=>x.id===id);if(confirm('確定刪除？')){await deleteDoc(doc(refs.people,id));await logAction('刪除','民眾',id,p?.name||'');$('personDialog').close()}};
+$('deleteCaseBtn').onclick=async()=>{const id=$('caseId').value,c=cases.find(x=>x.id===id);if(confirm('確定刪除？')){await deleteDoc(doc(refs.cases,id));await logAction('刪除','案件',id,c?.title||'');$('caseDialog').close()}};
+$('deleteTaskBtn').onclick=async()=>{const id=$('taskId').value,t=tasks.find(x=>x.id===id);if(confirm('確定刪除？')){await deleteDoc(doc(refs.tasks,id));await logAction('刪除','追蹤',id,t?.title||'');$('taskDialog').close()}};
 
-  const cases=[...db.cases].sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||'')).slice(0,5);
-  $('dashboardCases').innerHTML=cases.length?cases.map(c=>`<div class="mini-card"><div><strong>${escapeHTML(c.title)}</strong><span class="muted">${escapeHTML(personName(c.personId))}｜${escapeHTML(c.assignee||'未指定')}</span></div><span class="badge ${badgeClass(c.status)}">${escapeHTML(c.status)}</span></div>`).join(''):'<div class="muted">目前沒有案件</div>';
+$('addMemberBtn').onclick=async()=>{
+  if(!isAdmin())return;
+  const email=$('memberEmail').value.trim().toLowerCase(), role=$('memberRole').value;
+  if(!email){alert('請輸入 Email');return}
+  alert('Firebase 安全規則使用 UID 作為白名單鍵值。請先讓該同仁登入一次，取得 UID 後再由管理員建立成員文件。詳細步驟請看 README。');
+};
 
-  const counts={};
-  db.cases.forEach(c=>{const p=db.people.find(x=>x.id===c.personId);const v=p?.village||'未指定';counts[v]=(counts[v]||0)+1});
-  renderBars('villageBars',counts);
-}
+window.toggleMember=async(id,newActive)=>{
+  if(!isAdmin())return;
+  await setDoc(doc(refs.members,id),{active:newActive,updatedAt:serverTimestamp(),updatedBy:currentUser.uid},{merge:true});
+  await logAction(newActive?'啟用成員':'停用成員','成員',id,id);
+};
 
-function renderPeople(){
-  const q=$('peopleSearch').value.trim().toLowerCase();
-  const vf=$('peopleVillageFilter').value;
-  const list=db.people.filter(p=>[p.name,p.phone,p.village,p.address,p.notes].join(' ').toLowerCase().includes(q)&&(!vf||p.village===vf))
-    .sort((a,b)=>a.name.localeCompare(b.name,'zh-Hant'));
-  $('peopleList').innerHTML=list.map(p=>{
-    const count=db.cases.filter(c=>c.personId===p.id).length;
-    return `<article class="data-card"><div><h3>${escapeHTML(p.name)}</h3><div class="muted">${escapeHTML([p.village,p.phone,p.address].filter(Boolean).join('｜')||'尚未填寫聯絡資訊')}</div><div class="meta"><span class="badge">${count} 件案件</span>${p.contactPref?`<span class="badge blue">${escapeHTML(p.contactPref)}</span>`:''}${p.consent?'<span class="badge green">已同意聯絡</span>':'<span class="badge orange">未確認同意</span>'}</div></div><div class="actions"><button class="btn secondary" onclick="openPerson('${p.id}')">查看／編輯</button><button class="btn primary" onclick="openCase('', '${p.id}')">新增案件</button></div></article>`
-  }).join('');
-  $('peopleEmpty').classList.toggle('hidden',list.length>0);
-}
-
-function renderCases(){
-  const q=$('caseSearch').value.trim().toLowerCase(), sf=$('caseStatusFilter').value, cf=$('caseCategoryFilter').value;
-  const list=db.cases.filter(c=>[c.title,c.description,c.resolution,personName(c.personId)].join(' ').toLowerCase().includes(q)&&(!sf||c.status===sf)&&(!cf||c.category===cf))
-    .sort((a,b)=>(a.status==='已完成')-(b.status==='已完成')||(a.followupDate||'9999').localeCompare(b.followupDate||'9999'));
-  $('caseList').innerHTML=list.map(c=>`<article class="data-card"><div><h3>${escapeHTML(c.title)}</h3><div class="muted">${escapeHTML(personName(c.personId))}｜${escapeHTML(c.category)}｜承辦：${escapeHTML(c.assignee||'未指定')}</div><div class="meta"><span class="badge ${badgeClass(c.status)}">${escapeHTML(c.status)}</span><span class="badge">追蹤：${formatDate(c.followupDate)}</span></div>${c.description?`<p>${escapeHTML(c.description)}</p>`:''}</div><div class="actions"><button class="btn secondary" onclick="openCase('${c.id}')">查看／編輯</button><button class="btn primary" onclick="openTask('', '${c.id}')">新增追蹤</button></div></article>`).join('');
-  $('caseEmpty').classList.toggle('hidden',list.length>0);
-}
-
-function renderTasks(){
-  const q=$('taskSearch').value.trim().toLowerCase(), f=$('taskFilter').value;
-  const list=db.tasks.filter(t=>t.title.toLowerCase().includes(q)&&(
-    !f||(f==='open'&&!t.done)||(f==='done'&&t.done)||(f==='due'&&!t.done&&t.dueDate&&t.dueDate<=today())
-  )).sort((a,b)=>Number(a.done)-Number(b.done)||(a.dueDate||'9999').localeCompare(b.dueDate||'9999'));
-  $('taskList').innerHTML=list.map(t=>`<article class="data-card"><div><h3>${t.done?'✅ ':''}${escapeHTML(t.title)}</h3><div class="muted">到期：${formatDate(t.dueDate)}｜負責：${escapeHTML(t.owner||'未指定')}｜案件：${escapeHTML(caseTitle(t.caseId))}</div><div class="meta"><span class="badge ${t.done?'green':(t.dueDate&&t.dueDate<=today()?'red':badgeClass(t.priority))}">${t.done?'已完成':escapeHTML(t.priority||'普通')}</span></div></div><div class="actions"><button class="btn secondary" onclick="openTask('${t.id}')">查看／編輯</button></div></article>`).join('');
-  $('taskEmpty').classList.toggle('hidden',list.length>0);
-}
-
-function renderBars(id,counts){
-  const entries=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
-  const max=Math.max(1,...entries.map(x=>x[1]));
-  $(id).innerHTML=entries.length?entries.map(([k,v])=>`<div class="bar-row"><span>${escapeHTML(k)}</span><div class="bar-track"><div class="bar-fill" style="width:${v/max*100}%"></div></div><strong>${v}</strong></div>`).join(''):'<div class="muted">尚無資料</div>';
-}
-
-function renderReports(){
-  const status={},category={},assignee={};
-  db.cases.forEach(c=>{status[c.status]=(status[c.status]||0)+1;category[c.category]=(category[c.category]||0)+1;const a=c.assignee||'未指定';assignee[a]=(assignee[a]||0)+1});
-  renderBars('statusReport',status);renderBars('categoryReport',category);renderBars('assigneeReport',assignee);
-  const month=today().slice(0,7);
-  $('monthAdded').textContent=db.cases.filter(c=>(c.createdDate||'').startsWith(month)).length;
-}
-
-window.openPerson=function(id=''){
-  $('personForm').reset();$('personId').value='';
-  $('personDialogTitle').textContent=id?'編輯民眾':'新增民眾';
-  $('deletePersonBtn').classList.toggle('hidden',!id);
-  if(id){const p=db.people.find(x=>x.id===id);if(!p)return;$('personId').value=p.id;$('personName').value=p.name||'';$('personPhone').value=p.phone||'';$('personVillage').value=p.village||'';$('personContactPref').value=p.contactPref||'';$('personAddress').value=p.address||'';$('personLine').value=p.line||'';$('personEmail').value=p.email||'';$('personNotes').value=p.notes||'';$('personConsent').checked=!!p.consent}
-  $('personDialog').showModal();
-}
-window.openCase=function(id='',personId=''){
-  $('caseForm').reset();$('caseId').value='';$('caseCreatedDate').value=today();
-  $('caseDialogTitle').textContent=id?'編輯案件':'新增案件';$('deleteCaseBtn').classList.toggle('hidden',!id);
-  if(id){const c=db.cases.find(x=>x.id===id);if(!c)return;$('caseId').value=c.id;$('caseTitle').value=c.title||'';$('casePersonId').value=c.personId||'';$('caseCategory').value=c.category||'其他';$('caseStatus').value=c.status||'待處理';$('caseAssignee').value=c.assignee||'';$('caseCreatedDate').value=c.createdDate||today();$('caseFollowupDate').value=c.followupDate||'';$('caseDescription').value=c.description||'';$('caseResolution').value=c.resolution||''}
-  else if(personId)$('casePersonId').value=personId;
-  $('caseDialog').showModal();
-}
-window.openTask=function(id='',caseId=''){
-  $('taskForm').reset();$('taskId').value='';$('taskDialogTitle').textContent=id?'編輯追蹤':'新增追蹤';$('deleteTaskBtn').classList.toggle('hidden',!id);
-  if(id){const t=db.tasks.find(x=>x.id===id);if(!t)return;$('taskId').value=t.id;$('taskTitle').value=t.title||'';$('taskDueDate').value=t.dueDate||'';$('taskPriority').value=t.priority||'普通';$('taskCaseId').value=t.caseId||'';$('taskOwner').value=t.owner||'';$('taskDone').checked=!!t.done}
-  else if(caseId)$('taskCaseId').value=caseId;
-  $('taskDialog').showModal();
-}
-
-$('personForm').addEventListener('submit',e=>{e.preventDefault();const id=$('personId').value,old=db.people.find(p=>p.id===id);const p={id:id||uid(),name:$('personName').value.trim(),phone:$('personPhone').value.trim(),village:$('personVillage').value.trim(),contactPref:$('personContactPref').value,address:$('personAddress').value.trim(),line:$('personLine').value.trim(),email:$('personEmail').value.trim(),notes:$('personNotes').value.trim(),consent:$('personConsent').checked,createdAt:old?.createdAt||now(),updatedAt:now()};db.people=id?db.people.map(x=>x.id===id?p:x):[...db.people,p];save();$('personDialog').close();renderAll()});
-$('caseForm').addEventListener('submit',e=>{e.preventDefault();const id=$('caseId').value,old=db.cases.find(c=>c.id===id);const c={id:id||uid(),title:$('caseTitle').value.trim(),personId:$('casePersonId').value,category:$('caseCategory').value,status:$('caseStatus').value,assignee:$('caseAssignee').value.trim(),createdDate:$('caseCreatedDate').value||today(),followupDate:$('caseFollowupDate').value,description:$('caseDescription').value.trim(),resolution:$('caseResolution').value.trim(),createdAt:old?.createdAt||now(),updatedAt:now()};db.cases=id?db.cases.map(x=>x.id===id?c:x):[...db.cases,c];save();$('caseDialog').close();renderAll()});
-$('taskForm').addEventListener('submit',e=>{e.preventDefault();const id=$('taskId').value,old=db.tasks.find(t=>t.id===id);const t={id:id||uid(),title:$('taskTitle').value.trim(),dueDate:$('taskDueDate').value,priority:$('taskPriority').value,caseId:$('taskCaseId').value,owner:$('taskOwner').value.trim(),done:$('taskDone').checked,createdAt:old?.createdAt||now(),updatedAt:now()};db.tasks=id?db.tasks.map(x=>x.id===id?t:x):[...db.tasks,t];save();$('taskDialog').close();renderAll()});
-
-$('deletePersonBtn').addEventListener('click',()=>{const id=$('personId').value;if(confirm('刪除後，關聯案件仍會保留但不再顯示姓名。確定刪除？')){db.people=db.people.filter(p=>p.id!==id);save();$('personDialog').close();renderAll()}});
-$('deleteCaseBtn').addEventListener('click',()=>{const id=$('caseId').value;if(confirm('確定刪除此案件？')){db.cases=db.cases.filter(c=>c.id!==id);db.tasks=db.tasks.map(t=>t.caseId===id?{...t,caseId:''}:t);save();$('caseDialog').close();renderAll()}});
-$('deleteTaskBtn').addEventListener('click',()=>{const id=$('taskId').value;if(confirm('確定刪除此追蹤？')){db.tasks=db.tasks.filter(t=>t.id!==id);save();$('taskDialog').close();renderAll()}});
-
-document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',()=>$(b.dataset.close).close()));
-['quickAddPerson','addPersonBtn'].forEach(id=>$(id).addEventListener('click',()=>openPerson()));
-['quickAddCase','addCaseBtn'].forEach(id=>$(id).addEventListener('click',()=>openCase()));
-$('addTaskBtn').addEventListener('click',()=>openTask());
-['peopleSearch','caseSearch','taskSearch'].forEach(id=>$(id).addEventListener('input',renderAll));
-['peopleVillageFilter','caseStatusFilter','caseCategoryFilter','taskFilter'].forEach(id=>$(id).addEventListener('change',renderAll));
-
-function download(name,text,type='application/json'){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),500)}
-$('exportJsonBtn').addEventListener('click',()=>download(`服務處CRM備份_${today()}.json`,JSON.stringify(db,null,2)));
-$('importJsonInput').addEventListener('change',async e=>{const f=e.target.files[0];if(!f)return;try{const obj=JSON.parse(await f.text());if(!obj.people||!obj.cases||!obj.tasks)throw new Error();if(confirm('匯入會覆蓋目前資料，確定繼續？')){db=obj;save();renderAll();alert('匯入完成')}}catch{alert('備份檔格式不正確')}e.target.value=''});
-function csv(rows,headers){const q=v=>`"${String(v??'').replace(/"/g,'""')}"`;return '\ufeff'+[headers.map(h=>q(h[0])).join(','),...rows.map(r=>headers.map(h=>q(typeof h[1]==='function'?h[1](r):r[h[1]])).join(','))].join('\n')}
-$('exportPeopleCsv').addEventListener('click',()=>download(`民眾資料_${today()}.csv`,csv(db.people,[['姓名','name'],['電話','phone'],['里別','village'],['地址','address'],['LINE','line'],['Email','email'],['聯絡偏好','contactPref'],['同意聯絡',r=>r.consent?'是':'否'],['備註','notes']]),'text/csv;charset=utf-8'));
-$('exportCasesCsv').addEventListener('click',()=>download(`案件資料_${today()}.csv`,csv(db.cases,[['案件標題','title'],['民眾姓名',r=>personName(r.personId)],['類別','category'],['狀態','status'],['承辦人','assignee'],['建立日期','createdDate'],['追蹤日期','followupDate'],['案件內容','description'],['處理紀錄','resolution']]),'text/csv;charset=utf-8'));
-
-$('loadDemoBtn').addEventListener('click',()=>{if(db.people.length&&!confirm('目前已有資料，仍要加入示範資料？'))return;const p1=uid(),p2=uid(),c1=uid(),c2=uid();db.people.push({id:p1,name:'王小明',phone:'0912-345-678',village:'明德里',address:'中和區示範路1號',contactPref:'電話',line:'',email:'',notes:'',consent:true,createdAt:now(),updatedAt:now()},{id:p2,name:'陳美華',phone:'0988-111-222',village:'景新里',address:'中和區範例街8號',contactPref:'LINE',line:'',email:'',notes:'長者福利案件',consent:true,createdAt:now(),updatedAt:now()});db.cases.push({id:c1,title:'巷口路燈故障',personId:p1,category:'道路交通',status:'處理中',assignee:'智翔',createdDate:today(),followupDate:today(),description:'反映巷口路燈夜間不亮。',resolution:'已轉請相關單位查處。',createdAt:now(),updatedAt:now()},{id:c2,title:'長者補助申請諮詢',personId:p2,category:'社會福利',status:'待回覆',assignee:'小林',createdDate:today(),followupDate:'',description:'詢問長者社福補助申請方式。',resolution:'待確認應備文件。',createdAt:now(),updatedAt:now()});db.tasks.push({id:uid(),title:'回電確認路燈修復進度',dueDate:today(),priority:'重要',caseId:c1,owner:'智翔',done:false,createdAt:now(),updatedAt:now()});save();renderAll()});
-$('clearAllBtn').addEventListener('click',()=>{if(confirm('確定清空全部資料？此動作無法復原。')){db=defaultDB();save();renderAll()}});
-
-if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
-renderAll();
+$('exportBtn').onclick=()=>{
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([JSON.stringify({people,cases,tasks,members,exportedAt:new Date().toISOString()},null,2)],{type:'application/json'}));
+  a.download=`服務處CRM安全備份_${today()}.json`;a.click()
+};

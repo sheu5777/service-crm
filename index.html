@@ -1,279 +1,188 @@
 <!doctype html>
 <html lang="zh-Hant">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#0f172a">
-  <title>服務處 CRM</title>
-  <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="styles.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<title>服務處 CRM Secure</title>
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div id="app">
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-mark">服</div>
-        <div>
-          <strong>服務處 CRM</strong>
-          <small>選民服務與案件追蹤</small>
-        </div>
-      </div>
-
-      <nav>
-        <button class="nav-btn active" data-view="dashboard">📊 儀表板</button>
-        <button class="nav-btn" data-view="people">👥 選民資料</button>
-        <button class="nav-btn" data-view="cases">🗂️ 服務案件</button>
-        <button class="nav-btn" data-view="tasks">✅ 追蹤任務</button>
-        <button class="nav-btn" data-view="reports">📈 統計報表</button>
-        <button class="nav-btn" data-view="settings">⚙️ 設定與備份</button>
-      </nav>
-
-      <div class="sidebar-foot">
-        <span id="storageBadge">本機安全模式</span>
-        <small>資料只存在目前瀏覽器</small>
-      </div>
-    </aside>
-
-    <main class="main">
-      <header class="topbar">
-        <div>
-          <h1 id="pageTitle">儀表板</h1>
-          <p id="pageSubtitle">今天的服務案件與追蹤重點</p>
-        </div>
-        <div class="top-actions">
-          <button id="quickAddPerson" class="btn secondary">＋ 新增民眾</button>
-          <button id="quickAddCase" class="btn primary">＋ 新增案件</button>
-        </div>
-      </header>
-
-      <section id="view-dashboard" class="view active">
-        <div class="stat-grid">
-          <article class="stat-card"><span id="statPeople">0</span><small>選民／民眾</small></article>
-          <article class="stat-card"><span id="statOpenCases">0</span><small>未結案件</small></article>
-          <article class="stat-card"><span id="statDueTasks">0</span><small>逾期／今日追蹤</small></article>
-          <article class="stat-card"><span id="statDoneRate">0%</span><small>案件完成率</small></article>
-        </div>
-
-        <div class="two-col">
-          <article class="panel">
-            <div class="panel-head">
-              <div><h2>今日追蹤</h2><p>優先處理逾期與今天到期的事項</p></div>
-            </div>
-            <div id="dashboardTasks" class="stack"></div>
-          </article>
-
-          <article class="panel">
-            <div class="panel-head">
-              <div><h2>近期案件</h2><p>最近更新的服務案件</p></div>
-            </div>
-            <div id="dashboardCases" class="stack"></div>
-          </article>
-        </div>
-
-        <article class="panel">
-          <div class="panel-head">
-            <div><h2>里別案件分布</h2><p>快速查看服務量較高的里別</p></div>
-          </div>
-          <div id="villageBars" class="bars"></div>
-        </article>
-      </section>
-
-      <section id="view-people" class="view">
-        <div class="toolbar panel">
-          <input id="peopleSearch" type="search" placeholder="搜尋姓名、電話、里別、地址、備註">
-          <select id="peopleVillageFilter"><option value="">全部里別</option></select>
-          <button id="addPersonBtn" class="btn primary">＋ 新增民眾</button>
-        </div>
-        <div id="peopleList" class="card-list"></div>
-        <div id="peopleEmpty" class="empty panel">尚無民眾資料</div>
-      </section>
-
-      <section id="view-cases" class="view">
-        <div class="toolbar panel">
-          <input id="caseSearch" type="search" placeholder="搜尋案件標題、內容、民眾姓名">
-          <select id="caseStatusFilter">
-            <option value="">全部狀態</option>
-            <option>待處理</option>
-            <option>處理中</option>
-            <option>待回覆</option>
-            <option>已完成</option>
-          </select>
-          <select id="caseCategoryFilter"><option value="">全部類別</option></select>
-          <button id="addCaseBtn" class="btn primary">＋ 新增案件</button>
-        </div>
-        <div id="caseList" class="card-list"></div>
-        <div id="caseEmpty" class="empty panel">尚無案件資料</div>
-      </section>
-
-      <section id="view-tasks" class="view">
-        <div class="toolbar panel">
-          <input id="taskSearch" type="search" placeholder="搜尋追蹤內容">
-          <select id="taskFilter">
-            <option value="">全部任務</option>
-            <option value="open">未完成</option>
-            <option value="done">已完成</option>
-            <option value="due">今日／逾期</option>
-          </select>
-          <button id="addTaskBtn" class="btn primary">＋ 新增追蹤</button>
-        </div>
-        <div id="taskList" class="card-list"></div>
-        <div id="taskEmpty" class="empty panel">尚無追蹤任務</div>
-      </section>
-
-      <section id="view-reports" class="view">
-        <div class="report-grid">
-          <article class="panel">
-            <h2>案件狀態</h2>
-            <div id="statusReport" class="bars"></div>
-          </article>
-          <article class="panel">
-            <h2>案件類別</h2>
-            <div id="categoryReport" class="bars"></div>
-          </article>
-          <article class="panel">
-            <h2>承辦人工作量</h2>
-            <div id="assigneeReport" class="bars"></div>
-          </article>
-          <article class="panel">
-            <h2>本月新增</h2>
-            <div class="big-number" id="monthAdded">0</div>
-            <p>本月新增案件數</p>
-          </article>
-        </div>
-      </section>
-
-      <section id="view-settings" class="view">
-        <div class="settings-grid">
-          <article class="panel">
-            <h2>資料備份</h2>
-            <p>匯出完整 JSON 備份，換裝置或清除瀏覽器前請先備份。</p>
-            <div class="button-row">
-              <button id="exportJsonBtn" class="btn primary">匯出完整備份</button>
-              <label class="btn secondary file-btn">匯入備份<input id="importJsonInput" type="file" accept=".json,application/json" hidden></label>
-            </div>
-          </article>
-
-          <article class="panel">
-            <h2>Excel／CSV</h2>
-            <p>匯出民眾與案件資料，方便另存或整理。</p>
-            <div class="button-row">
-              <button id="exportPeopleCsv" class="btn secondary">匯出民眾 CSV</button>
-              <button id="exportCasesCsv" class="btn secondary">匯出案件 CSV</button>
-            </div>
-          </article>
-
-          <article class="panel">
-            <h2>安全提醒</h2>
-            <ul class="safety-list">
-              <li>正式使用前應加入帳號登入、分級權限與操作紀錄。</li>
-              <li>避免紀錄政治傾向、投票選擇、健康狀況等不必要敏感資料。</li>
-              <li>手機遺失時應能遠端登出與撤銷存取權。</li>
-              <li>應建立定期備份與資料保存期限。</li>
-            </ul>
-          </article>
-
-          <article class="panel danger-zone">
-            <h2>測試資料</h2>
-            <div class="button-row">
-              <button id="loadDemoBtn" class="btn secondary">載入示範資料</button>
-              <button id="clearAllBtn" class="btn danger">清空全部資料</button>
-            </div>
-          </article>
-        </div>
-      </section>
-    </main>
+<section id="loginView" class="login-shell">
+  <div class="login-card">
+    <div class="logo">服</div>
+    <h1>服務處 CRM Secure</h1>
+    <p>Google 登入、白名單、角色權限、操作紀錄</p>
+    <button id="loginBtn" class="btn primary wide">使用 Google 帳號登入</button>
+    <div id="loginError" class="error hidden"></div>
   </div>
+</section>
 
-  <dialog id="personDialog">
-    <form id="personForm">
-      <div class="dialog-head">
-        <div><h2 id="personDialogTitle">新增民眾</h2><p>建立基本聯絡與服務資料</p></div>
-        <button type="button" class="icon-btn" data-close="personDialog">✕</button>
-      </div>
-      <input id="personId" type="hidden">
-      <div class="form-grid">
-        <label>姓名<input id="personName" required maxlength="50"></label>
-        <label>電話<input id="personPhone" inputmode="tel" maxlength="30"></label>
-        <label>里別<input id="personVillage" maxlength="50" placeholder="例如：明德里"></label>
-        <label>聯絡偏好
-          <select id="personContactPref"><option value="">未指定</option><option>電話</option><option>簡訊</option><option>LINE</option><option>Email</option></select>
-        </label>
-        <label class="full">地址<input id="personAddress" maxlength="120"></label>
-        <label>LINE ID<input id="personLine" maxlength="80"></label>
-        <label>Email<input id="personEmail" type="email" maxlength="100"></label>
-        <label class="full">備註<textarea id="personNotes" rows="3" maxlength="1000"></textarea></label>
-        <label class="check full"><input id="personConsent" type="checkbox">已取得本人同意，可為服務案件聯繫</label>
-      </div>
-      <div class="dialog-actions">
-        <button id="deletePersonBtn" type="button" class="btn danger hidden">刪除</button>
-        <span></span>
-        <button type="button" class="btn secondary" data-close="personDialog">取消</button>
-        <button type="submit" class="btn primary">儲存</button>
-      </div>
-    </form>
-  </dialog>
+<section id="blockedView" class="login-shell hidden">
+  <div class="login-card">
+    <div class="logo warn-logo">!</div>
+    <h1>尚未取得使用權</h1>
+    <p>你的 Google 帳號尚未加入服務處白名單。</p>
+    <p class="mono" id="blockedEmail"></p>
+    <button id="blockedLogoutBtn" class="btn secondary wide">登出</button>
+  </div>
+</section>
 
-  <dialog id="caseDialog">
-    <form id="caseForm">
-      <div class="dialog-head">
-        <div><h2 id="caseDialogTitle">新增案件</h2><p>建立服務案件與追蹤資訊</p></div>
-        <button type="button" class="icon-btn" data-close="caseDialog">✕</button>
-      </div>
-      <input id="caseId" type="hidden">
-      <div class="form-grid">
-        <label class="full">案件標題<input id="caseTitle" required maxlength="100"></label>
-        <label>民眾
-          <select id="casePersonId"><option value="">未指定</option></select>
-        </label>
-        <label>案件類別
-          <select id="caseCategory">
-            <option>道路交通</option><option>環境衛生</option><option>社會福利</option>
-            <option>建築工務</option><option>教育文化</option><option>法律諮詢</option>
-            <option>會勘</option><option>其他</option>
-          </select>
-        </label>
-        <label>狀態
-          <select id="caseStatus"><option>待處理</option><option>處理中</option><option>待回覆</option><option>已完成</option></select>
-        </label>
-        <label>承辦人<input id="caseAssignee" maxlength="50" placeholder="例如：智翔"></label>
-        <label>建立日期<input id="caseCreatedDate" type="date"></label>
-        <label>下次追蹤<input id="caseFollowupDate" type="date"></label>
-        <label class="full">案件內容<textarea id="caseDescription" rows="4" maxlength="2000"></textarea></label>
-        <label class="full">處理紀錄／回覆<textarea id="caseResolution" rows="4" maxlength="2000"></textarea></label>
-      </div>
-      <div class="dialog-actions">
-        <button id="deleteCaseBtn" type="button" class="btn danger hidden">刪除</button>
-        <span></span>
-        <button type="button" class="btn secondary" data-close="caseDialog">取消</button>
-        <button type="submit" class="btn primary">儲存</button>
-      </div>
-    </form>
-  </dialog>
+<div id="appView" class="hidden">
+<header class="topbar">
+  <div>
+    <h1>服務處 CRM Secure</h1>
+    <p id="syncStatus">尚未同步</p>
+  </div>
+  <div class="user-box">
+    <span id="roleBadge" class="badge"></span>
+    <span id="userName"></span>
+    <button id="logoutBtn" class="btn secondary">登出</button>
+  </div>
+</header>
 
-  <dialog id="taskDialog">
-    <form id="taskForm">
-      <div class="dialog-head">
-        <div><h2 id="taskDialogTitle">新增追蹤</h2><p>建立回電、會勘或提醒事項</p></div>
-        <button type="button" class="icon-btn" data-close="taskDialog">✕</button>
-      </div>
-      <input id="taskId" type="hidden">
-      <div class="form-grid">
-        <label class="full">追蹤內容<input id="taskTitle" required maxlength="150"></label>
-        <label>到期日<input id="taskDueDate" type="date"></label>
-        <label>優先級<select id="taskPriority"><option>普通</option><option>重要</option><option>緊急</option></select></label>
-        <label>關聯案件<select id="taskCaseId"><option value="">未指定</option></select></label>
-        <label>負責人<input id="taskOwner" maxlength="50"></label>
-        <label class="check full"><input id="taskDone" type="checkbox">已完成</label>
-      </div>
-      <div class="dialog-actions">
-        <button id="deleteTaskBtn" type="button" class="btn danger hidden">刪除</button>
-        <span></span>
-        <button type="button" class="btn secondary" data-close="taskDialog">取消</button>
-        <button type="submit" class="btn primary">儲存</button>
-      </div>
-    </form>
-  </dialog>
+<nav class="tabs">
+  <button class="tab active" data-view="dashboard">儀表板</button>
+  <button class="tab" data-view="people">民眾資料</button>
+  <button class="tab" data-view="cases">服務案件</button>
+  <button class="tab" data-view="tasks">追蹤任務</button>
+  <button class="tab admin-only" data-view="members">成員權限</button>
+  <button class="tab admin-only" data-view="audit">操作紀錄</button>
+  <button class="tab" data-view="settings">設定</button>
+</nav>
 
-  <script src="app.js"></script>
+<main class="container">
+<section id="view-dashboard" class="view active">
+  <div class="stats">
+    <article><strong id="statPeople">0</strong><span>民眾資料</span></article>
+    <article><strong id="statCases">0</strong><span>未結案件</span></article>
+    <article><strong id="statTasks">0</strong><span>今日／逾期</span></article>
+    <article><strong id="statRate">0%</strong><span>完成率</span></article>
+  </div>
+  <section class="panel"><h2>近期案件</h2><div id="recentCases" class="list"></div></section>
+  <section class="panel"><h2>近期追蹤</h2><div id="recentTasks" class="list"></div></section>
+</section>
+
+<section id="view-people" class="view">
+  <section class="toolbar panel">
+    <input id="peopleSearch" type="search" placeholder="搜尋姓名、電話、里別">
+    <button id="addPersonBtn" class="btn primary editor-only">＋ 新增民眾</button>
+  </section>
+  <div id="peopleList" class="list"></div>
+</section>
+
+<section id="view-cases" class="view">
+  <section class="toolbar panel">
+    <input id="caseSearch" type="search" placeholder="搜尋案件、內容、民眾姓名">
+    <select id="caseStatusFilter">
+      <option value="">全部狀態</option>
+      <option>待處理</option><option>處理中</option><option>待回覆</option><option>已完成</option>
+    </select>
+    <button id="addCaseBtn" class="btn primary editor-only">＋ 新增案件</button>
+  </section>
+  <div id="caseList" class="list"></div>
+</section>
+
+<section id="view-tasks" class="view">
+  <section class="toolbar panel">
+    <input id="taskSearch" type="search" placeholder="搜尋追蹤內容">
+    <button id="addTaskBtn" class="btn primary editor-only">＋ 新增追蹤</button>
+  </section>
+  <div id="taskList" class="list"></div>
+</section>
+
+<section id="view-members" class="view">
+  <section class="toolbar panel">
+    <input id="memberEmail" type="email" placeholder="同仁 Google Email">
+    <select id="memberRole">
+      <option value="assistant">助理</option>
+      <option value="director">主任</option>
+      <option value="volunteer">志工</option>
+      <option value="admin">管理員</option>
+    </select>
+    <button id="addMemberBtn" class="btn primary">加入白名單</button>
+  </section>
+  <div id="memberList" class="list"></div>
+</section>
+
+<section id="view-audit" class="view">
+  <section class="panel">
+    <h2>最近 100 筆操作紀錄</h2>
+    <div id="auditList" class="list"></div>
+  </section>
+</section>
+
+<section id="view-settings" class="view">
+  <section class="panel">
+    <h2>工作區</h2>
+    <p id="workspaceId"></p>
+    <button id="exportBtn" class="btn secondary">匯出完整備份</button>
+  </section>
+  <section class="panel warning">
+    <h2>資料安全原則</h2>
+    <ul>
+      <li>只有白名單成員可進入。</li>
+      <li>志工為唯讀；助理與主任可新增、修改；管理員可管理成員。</li>
+      <li>新增、修改、刪除均寫入操作紀錄。</li>
+      <li>避免紀錄政治傾向、投票意向與不必要敏感資料。</li>
+    </ul>
+  </section>
+</section>
+</main>
+</div>
+
+<dialog id="personDialog"><form id="personForm">
+  <div class="dialog-head"><h2>民眾資料</h2><button type="button" data-close="personDialog">✕</button></div>
+  <input id="personId" type="hidden">
+  <label>姓名<input id="personName" required></label>
+  <label>電話<input id="personPhone"></label>
+  <label>里別<input id="personVillage"></label>
+  <label>地址<input id="personAddress"></label>
+  <label>聯絡偏好<select id="personPref"><option value="">未指定</option><option>電話</option><option>簡訊</option><option>LINE</option><option>Email</option></select></label>
+  <label>備註<textarea id="personNotes" rows="3"></textarea></label>
+  <label class="check"><input id="personConsent" type="checkbox">已取得本人同意，可為服務案件聯繫</label>
+  <div class="dialog-actions">
+    <button id="deletePersonBtn" type="button" class="btn danger hidden">刪除</button>
+    <span></span><button type="button" class="btn secondary" data-close="personDialog">取消</button>
+    <button class="btn primary">儲存</button>
+  </div>
+</form></dialog>
+
+<dialog id="caseDialog"><form id="caseForm">
+  <div class="dialog-head"><h2>服務案件</h2><button type="button" data-close="caseDialog">✕</button></div>
+  <input id="caseId" type="hidden">
+  <label>案件標題<input id="caseTitle" required></label>
+  <label>民眾<select id="casePersonId"></select></label>
+  <label>類別<select id="caseCategory"><option>道路交通</option><option>環境衛生</option><option>社會福利</option><option>建築工務</option><option>教育文化</option><option>法律諮詢</option><option>會勘</option><option>其他</option></select></label>
+  <label>狀態<select id="caseStatus"><option>待處理</option><option>處理中</option><option>待回覆</option><option>已完成</option></select></label>
+  <label>承辦人<input id="caseAssignee"></label>
+  <label>追蹤日期<input id="caseFollowupDate" type="date"></label>
+  <label>案件內容<textarea id="caseDescription" rows="4"></textarea></label>
+  <label>處理紀錄<textarea id="caseResolution" rows="4"></textarea></label>
+  <div class="dialog-actions">
+    <button id="deleteCaseBtn" type="button" class="btn danger hidden">刪除</button>
+    <span></span><button type="button" class="btn secondary" data-close="caseDialog">取消</button>
+    <button class="btn primary">儲存</button>
+  </div>
+</form></dialog>
+
+<dialog id="taskDialog"><form id="taskForm">
+  <div class="dialog-head"><h2>追蹤任務</h2><button type="button" data-close="taskDialog">✕</button></div>
+  <input id="taskId" type="hidden">
+  <label>追蹤內容<input id="taskTitle" required></label>
+  <label>到期日<input id="taskDueDate" type="date"></label>
+  <label>優先級<select id="taskPriority"><option>普通</option><option>重要</option><option>緊急</option></select></label>
+  <label>關聯案件<select id="taskCaseId"></select></label>
+  <label>負責人<input id="taskOwner"></label>
+  <label class="check"><input id="taskDone" type="checkbox">已完成</label>
+  <div class="dialog-actions">
+    <button id="deleteTaskBtn" type="button" class="btn danger hidden">刪除</button>
+    <span></span><button type="button" class="btn secondary" data-close="taskDialog">取消</button>
+    <button class="btn primary">儲存</button>
+  </div>
+</form></dialog>
+
+<script type="module" src="app.js"></script>
 </body>
 </html>

@@ -1,34 +1,111 @@
-# 服務處 CRM 第二版
+# 服務處 CRM Secure V4
 
-這是可在手機與電腦瀏覽器操作的 PWA 原型。
+這一版已加入：
 
-## 已完成
-- 儀表板
-- 民眾資料
-- 一人多案件
-- 案件狀態、類別、承辦人、處理紀錄
-- 追蹤任務
-- 今日與逾期提醒
-- 里別、狀態、類別、承辦人統計
-- JSON 完整備份與還原
-- 民眾與案件 CSV 匯出
-- 離線快取
-- iPhone 加到主畫面
+- Google 登入
+- 白名單成員
+- 角色權限
+- 志工唯讀
+- 助理／主任可新增與修改
+- 管理員可管理成員
+- 操作紀錄
+- Firebase Firestore 雲端同步
+- 完整 JSON 備份
 
-## 使用方式
-本專案需要透過網站伺服器開啟，不能只在 Dropbox 裡直接點 index.html。
+## 一、先上傳檔案到 GitHub
 
-最簡單的免費部署方式：
-1. Netlify Drop
-2. Cloudflare Pages
-3. GitHub Pages
+把本壓縮檔解壓縮後，將以下檔案上傳到原本 `service-crm` 儲存庫並覆蓋舊檔：
 
-部署後，用 iPhone Safari 開啟網址，點「分享」→「加入主畫面」。
+- index.html
+- styles.css
+- app.js
+- firebase-config.js
+- manifest.json
+- firestore.rules
+- README.md
 
-## 目前限制
-- 本版使用瀏覽器本機儲存，尚未接雲端資料庫。
-- 尚未加入 Google 登入、多人權限、附件上傳與 Google Calendar。
-- 正式存放真實個資前，必須做登入、權限、加密、備份與操作紀錄。
+## 二、把 Firestore 規則貼上
 
-## 資料原則
-定位為民眾服務與陳情案件管理。請避免建立政治傾向、支持度、投票意向或其他不必要敏感分類。
+Firebase Console：
+
+Firestore Database → Rules
+
+把 `firestore.rules` 全部內容貼上，按 Publish。
+
+## 三、建立第一位管理員
+
+因為安全規則已經鎖住，第一位管理員必須手動建立。
+
+### 1. 取得你的 Firebase UID
+
+Firebase Console：
+
+Authentication → Users → 點你的 Google 帳號
+
+複製 UID。
+
+### 2. 在 Firestore 建立文件
+
+Firestore Database → Data
+
+依序建立：
+
+- Collection：`workspaces`
+- Document ID：`service-office-main`
+- Subcollection：`members`
+- Document ID：貼上你的 UID
+
+欄位：
+
+- `email`：你的 Google Email（string）
+- `displayName`：你的姓名（string）
+- `role`：`admin`（string）
+- `active`：`true`（boolean）
+
+建立完成後重新整理網站，就能進入。
+
+## 四、加入其他同仁
+
+每位同仁先用 Google 登入一次，Firebase Authentication 就會留下該帳號與 UID。
+
+管理員再到 Firestore 的：
+
+`workspaces / service-office-main / members`
+
+新增一筆文件：
+
+- Document ID：該同仁 UID
+- email：同仁 Email
+- displayName：同仁姓名
+- role：可用 `director`、`assistant`、`volunteer`
+- active：true
+
+角色說明：
+
+- `admin`：管理員，可管理所有功能與成員
+- `director`：主任，可讀寫民眾、案件、追蹤
+- `assistant`：助理，可讀寫民眾、案件、追蹤
+- `volunteer`：志工，只能查看
+
+## 五、Authorized Domains
+
+Firebase Console：
+
+Authentication → Settings → Authorized domains
+
+加入：
+
+`sheu5777.github.io`
+
+若新版介面暫時找不到，可先測試登入；如果出現 `auth/unauthorized-domain` 再補設定。
+
+## 六、重要安全提醒
+
+這一版已經比前版安全，但正式存放大量真實個資前，仍建議：
+
+- 啟用多因素驗證
+- 建立定期備份
+- 建立離職停權流程
+- 定期檢查成員白名單
+- 設定資料保存期限
+- 不紀錄政治傾向、投票意向或其他不必要敏感資料
