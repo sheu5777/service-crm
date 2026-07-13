@@ -1,12 +1,12 @@
-# 服務處 CRM V7.1 iPhone 登入修正版
+# 服務處 CRM V7.2 Safari 登入修正版
 
-此版針對 iPhone Safari 點登入按鈕無反應：
+真正原因是 iPhone Safari 會限制跨網站儲存；網站在 GitHub Pages，Firebase Auth 處理頁在 firebaseapp.com，`signInWithRedirect` 回來後可能遺失登入狀態。
 
-- iPhone 改用 Firebase `signInWithRedirect`
-- 移除可能讓 Safari 模組停止執行的 top-level await
-- 加入登入中狀態與錯誤訊息
-- 為 app.js 與 firebase-config.js 加版本參數，避免 Safari/GitHub Pages 快取舊檔
-- 其餘 V7 功能與 Firestore Rules 不變
+此版改回直接由按鈕觸發的 `signInWithPopup`，並保留：
+- 登入狀態保存
+- 管理員自動建立
+- V7 民眾、案件、統計與 CSV 功能
+- 明確錯誤訊息
+- 快取版本更新
 
-更新方式：把全部檔案上傳到 GitHub `service-crm` 並 Commit。這次不需要重貼 Firestore Rules。
-更新後等待約 1–3 分鐘，再於 Safari 重新整理網站。
+更新方式：把全部檔案上傳到 GitHub `service-crm` 並 Commit。Firestore Rules 不需修改。

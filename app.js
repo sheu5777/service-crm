@@ -1,6 +1,6 @@
-import {firebaseConfig,WORKSPACE_ID,BOOTSTRAP_ADMIN_EMAIL} from './firebase-config.js?v=7.1.1';
+import {firebaseConfig,WORKSPACE_ID,BOOTSTRAP_ADMIN_EMAIL} from './firebase-config.js?v=7.2.0';
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js';
-import {getAuth,GoogleAuthProvider,signInWithPopup,signInWithRedirect,getRedirectResult,signOut,onAuthStateChanged,setPersistence,browserLocalPersistence} from 'https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js';
+import {getAuth,GoogleAuthProvider,signInWithPopup,signOut,onAuthStateChanged,setPersistence,browserLocalPersistence} from 'https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js';
 import {getFirestore,collection,doc,addDoc,setDoc,deleteDoc,getDoc,onSnapshot,serverTimestamp,query,orderBy,limit,writeBatch} from 'https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js';
 
 const $=id=>document.getElementById(id);
@@ -23,19 +23,23 @@ const ctitle=id=>cases.find(x=>x.id===id)?.title||'未指定';
 
 $('loginBtn').onclick=async()=>{
   const btn=$('loginBtn');
-  btn.disabled=true;btn.textContent='登入處理中…';$('loginMessage').textContent='';
+  btn.disabled=true;
+  btn.textContent='登入處理中…';
+  $('loginMessage').textContent='';
   try{
-    const isiOS=/iPad|iPhone|iPod/.test(navigator.userAgent);
-    if(isiOS){
-      await signInWithRedirect(auth,provider);
-      return;
-    }
-    await signInWithPopup(auth,provider);
+    const result=await signInWithPopup(auth,provider);
+    if(!result?.user) throw new Error('Google 沒有回傳登入使用者');
   }catch(e){
     console.error(e);
-    $('loginMessage').textContent=`登入失敗：${e.code||''}
-${e.message||''}`;
-    btn.disabled=false;btn.textContent='使用 Google 帳號登入';
+    const code=e.code||'';
+    let tip='';
+    if(code==='auth/popup-blocked') tip='請確認 Safari 沒有封鎖彈出式視窗。';
+    if(code==='auth/popup-closed-by-user') tip='登入視窗被關閉，請再按一次。';
+    $('loginMessage').textContent=`登入失敗：${code}
+${e.message||''}
+${tip}`;
+    btn.disabled=false;
+    btn.textContent='使用 Google 帳號登入';
   }
 };
 window.deleteInvite=async email=>{if(confirm('取消這個邀請？')){await deleteDoc(doc(refs.invites,email));await audit('取消邀請','成員',email,email)}};
