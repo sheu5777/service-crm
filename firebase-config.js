@@ -8,3 +8,5 @@ export const firebaseConfig = {
   measurementId: "G-ZBJQMF6TBD"
 };
 export const WORKSPACE_ID = "service-office-main";
+
+export const BOOTSTRAP_ADMIN_EMAIL = "sheu5777@gmail.com";

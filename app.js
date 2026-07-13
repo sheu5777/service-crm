@@ -1,12 +1,13 @@
-import {firebaseConfig,WORKSPACE_ID} from './firebase-config.js';
+import {firebaseConfig,WORKSPACE_ID,BOOTSTRAP_ADMIN_EMAIL} from './firebase-config.js';
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js';
-import {getAuth,GoogleAuthProvider,signInWithPopup,signOut,onAuthStateChanged} from 'https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js';
+import {getAuth,GoogleAuthProvider,signInWithPopup,signOut,onAuthStateChanged,setPersistence,browserLocalPersistence} from 'https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js';
 import {getFirestore,collection,doc,addDoc,setDoc,deleteDoc,getDoc,onSnapshot,serverTimestamp,query,orderBy,limit,writeBatch} from 'https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js';
 
 const $=id=>document.getElementById(id);
 const today=()=>new Date().toISOString().slice(0,10);
 const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
 const fb=initializeApp(firebaseConfig),auth=getAuth(fb),db=getFirestore(fb),provider=new GoogleAuthProvider();
+await setPersistence(auth,browserLocalPersistence);
 const c=name=>collection(db,'workspaces',WORKSPACE_ID,name);
 const refs={people:c('people'),cases:c('cases'),tasks:c('tasks'),members:c('members'),invites:c('invites'),audit:c('auditLogs')};
 let user=null,member=null,people=[],cases=[],tasks=[],members=[],invites=[],logs=[],unsubs=[];
@@ -24,16 +25,29 @@ $('retryClaimBtn').onclick=()=>attemptAccess(user);
 onAuthStateChanged(auth,async u=>{
   cleanup();user=u;
   if(!u){show('loginView');return}
-  await attemptAccess(u);
+  show('loadingView');
+  try{await attemptAccess(u)}catch(e){console.error(e);$('loginMessage').textContent=`權限確認失敗：${e.code||''} ${e.message||''}`;show('loginView')}
 });
 
 async function attemptAccess(u){
   $('loginMessage').textContent='';
+  const email=(u.email||'').toLowerCase();
   const memberRef=doc(refs.members,u.uid);
   let snap=await getDoc(memberRef);
 
+  if(!snap.exists() && email===BOOTSTRAP_ADMIN_EMAIL.toLowerCase()){
+    await setDoc(memberRef,{
+      email,
+      displayName:u.displayName||email,
+      role:'admin',
+      active:true,
+      joinedAt:serverTimestamp(),
+      bootstrap:true
+    });
+    snap=await getDoc(memberRef);
+  }
+
   if(!snap.exists()){
-    const email=(u.email||'').toLowerCase();
     const inviteRef=doc(refs.invites,email);
     const inviteSnap=await getDoc(inviteRef);
 
@@ -66,7 +80,7 @@ async function attemptAccess(u){
 }
 
 function show(id){
-  ['loginView','pendingView','appView'].forEach(x=>$(x).classList.add('hidden'));
+  ['loginView','loadingView','pendingView','appView'].forEach(x=>$(x).classList.add('hidden'));
   $(id).classList.remove('hidden');
 }
 function cleanup(){

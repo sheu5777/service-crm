@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#0f172a">
-  <title>服務處 CRM V5</title>
+  <title>服務處 CRM V6</title>
   <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -16,6 +16,15 @@
     <p>民眾服務、案件追蹤、角色權限與雲端同步</p>
     <button id="loginBtn" class="btn primary wide">使用 Google 帳號登入</button>
     <p id="loginMessage" class="message"></p>
+  </article>
+</section>
+
+
+<section id="loadingView" class="center-page hidden">
+  <article class="login-card">
+    <div class="logo">…</div>
+    <h1>正在確認權限</h1>
+    <p>請稍候，正在連接 Firebase。</p>
   </article>
 </section>
 
@@ -33,7 +42,7 @@
 <div id="appView" class="hidden">
   <header class="topbar">
     <div>
-      <h1>服務處 CRM V5</h1>
+      <h1>服務處 CRM V6</h1>
       <p id="syncStatus">準備同步</p>
     </div>
     <div class="user-area">

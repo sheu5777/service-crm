@@ -10,6 +10,10 @@ service cloud.firestore {
       return request.auth.token.email;
     }
 
+    function bootstrapAdmin() {
+      return signedIn() && email() == 'sheu5777@gmail.com';
+    }
+
     function memberPath(workspaceId) {
       return /databases/$(database)/documents/workspaces/$(workspaceId)/members/$(request.auth.uid);
     }
@@ -41,17 +45,23 @@ service cloud.firestore {
     match /workspaces/{workspaceId}/invites/{inviteEmail} {
       allow read: if admin(workspaceId)
         || (signedIn() && email() == inviteEmail);
-
       allow create, update: if admin(workspaceId);
-
       allow delete: if admin(workspaceId)
         || (signedIn() && email() == inviteEmail);
     }
 
     match /workspaces/{workspaceId}/members/{memberId} {
-      allow read: if activeMember(workspaceId);
+      allow read: if (signedIn() && memberId == request.auth.uid)
+        || activeMember(workspaceId);
 
       allow create: if admin(workspaceId)
+        || (
+          bootstrapAdmin()
+          && memberId == request.auth.uid
+          && request.resource.data.email == email()
+          && request.resource.data.role == 'admin'
+          && request.resource.data.active == true
+        )
         || (
           signedIn()
           && memberId == request.auth.uid
