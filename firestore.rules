@@ -6,53 +6,82 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function memberDoc(workspaceId) {
-      return get(/databases/$(database)/documents/workspaces/$(workspaceId)/members/$(request.auth.uid));
+    function email() {
+      return request.auth.token.email;
     }
 
-    function isActiveMember(workspaceId) {
+    function memberPath(workspaceId) {
+      return /databases/$(database)/documents/workspaces/$(workspaceId)/members/$(request.auth.uid);
+    }
+
+    function invitePath(workspaceId) {
+      return /databases/$(database)/documents/workspaces/$(workspaceId)/invites/$(email());
+    }
+
+    function activeMember(workspaceId) {
       return signedIn()
-        && exists(/databases/$(database)/documents/workspaces/$(workspaceId)/members/$(request.auth.uid))
-        && memberDoc(workspaceId).data.active == true;
+        && exists(memberPath(workspaceId))
+        && get(memberPath(workspaceId)).data.active == true;
     }
 
     function role(workspaceId) {
-      return memberDoc(workspaceId).data.role;
+      return get(memberPath(workspaceId)).data.role;
     }
 
-    function canEdit(workspaceId) {
-      return isActiveMember(workspaceId)
+    function editor(workspaceId) {
+      return activeMember(workspaceId)
         && role(workspaceId) in ['admin', 'director', 'assistant'];
     }
 
-    function isAdmin(workspaceId) {
-      return isActiveMember(workspaceId)
+    function admin(workspaceId) {
+      return activeMember(workspaceId)
         && role(workspaceId) == 'admin';
     }
 
+    match /workspaces/{workspaceId}/invites/{inviteEmail} {
+      allow read: if admin(workspaceId)
+        || (signedIn() && email() == inviteEmail);
+
+      allow create, update: if admin(workspaceId);
+
+      allow delete: if admin(workspaceId)
+        || (signedIn() && email() == inviteEmail);
+    }
+
     match /workspaces/{workspaceId}/members/{memberId} {
-      allow read: if isActiveMember(workspaceId);
-      allow create, update, delete: if isAdmin(workspaceId);
+      allow read: if activeMember(workspaceId);
+
+      allow create: if admin(workspaceId)
+        || (
+          signedIn()
+          && memberId == request.auth.uid
+          && request.resource.data.email == email()
+          && request.resource.data.active == true
+          && exists(invitePath(workspaceId))
+          && request.resource.data.role == get(invitePath(workspaceId)).data.role
+        );
+
+      allow update, delete: if admin(workspaceId);
     }
 
     match /workspaces/{workspaceId}/people/{docId} {
-      allow read: if isActiveMember(workspaceId);
-      allow create, update, delete: if canEdit(workspaceId);
+      allow read: if activeMember(workspaceId);
+      allow create, update, delete: if editor(workspaceId);
     }
 
     match /workspaces/{workspaceId}/cases/{docId} {
-      allow read: if isActiveMember(workspaceId);
-      allow create, update, delete: if canEdit(workspaceId);
+      allow read: if activeMember(workspaceId);
+      allow create, update, delete: if editor(workspaceId);
     }
 
     match /workspaces/{workspaceId}/tasks/{docId} {
-      allow read: if isActiveMember(workspaceId);
-      allow create, update, delete: if canEdit(workspaceId);
+      allow read: if activeMember(workspaceId);
+      allow create, update, delete: if editor(workspaceId);
     }
 
     match /workspaces/{workspaceId}/auditLogs/{logId} {
-      allow read: if isAdmin(workspaceId);
-      allow create: if canEdit(workspaceId)
+      allow read: if admin(workspaceId);
+      allow create: if editor(workspaceId)
         && request.resource.data.actorUid == request.auth.uid;
       allow update, delete: if false;
     }
