@@ -5,6 +5,9 @@ import {getFirestore,collection,doc,addDoc,setDoc,deleteDoc,getDoc,onSnapshot,se
 
 const $=id=>document.getElementById(id);
 const today=()=>new Date().toISOString().slice(0,10);
+const caseNo=()=>`C-${today().replaceAll('-','')}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
+const csvQuote=v=>`"${String(v??'').replace(/"/g,'""')}"`;
+const download=(name,text,type='application/json')=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),500)};
 const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
 const fb=initializeApp(firebaseConfig),auth=getAuth(fb),db=getFirestore(fb),provider=new GoogleAuthProvider();
 await setPersistence(auth,browserLocalPersistence);
@@ -117,13 +120,20 @@ function render(){
   $('dashboardCases').innerHTML=cases.slice().sort((a,b)=>(b.updatedAt?.seconds||0)-(a.updatedAt?.seconds||0)).slice(0,6).map(x=>mini(x.title,`${pname(x.personId)}｜${x.assignee||'未指定'}`,x.status)).join('')||'<p class="muted">尚無案件</p>';
 
   const pq=$('peopleSearch').value.toLowerCase();
-  $('peopleList').innerHTML=people.filter(x=>[x.name,x.phone,x.village,x.address].join(' ').toLowerCase().includes(pq)).map(x=>`
-    <article class="card"><div><h3>${esc(x.name)}</h3><div class="muted">${esc([x.village,x.phone,x.address].filter(Boolean).join('｜'))}</div></div>
+  $('peopleList').innerHTML=people.filter(x=>[x.name,x.phone,x.phone2,x.village,x.address,x.tags].join(' ').toLowerCase().includes(pq)).map(x=>`
+    <article class="card"><div><h3>${esc(x.name)}</h3>
+    <div class="muted">${esc([x.village,x.neighborhood?x.neighborhood+'鄰':'',x.phone,x.address].filter(Boolean).join('｜'))}</div>
+    <div class="tags">${String(x.tags||'').split(',').map(t=>t.trim()).filter(Boolean).map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div>
+    <div class="quick-actions">
+      ${x.phone?`<a href="tel:${esc(x.phone)}">撥電話</a>`:''}
+      ${x.address?`<a target="_blank" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(x.address)}">導航</a>`:''}
+      ${x.email?`<a href="mailto:${esc(x.email)}">Email</a>`:''}
+    </div></div>
     ${canEdit()?`<button class="btn" onclick="openPerson('${x.id}')">編輯</button>`:''}</article>`).join('')||'<div class="panel muted">尚無民眾資料</div>';
 
   const cq=$('caseSearch').value.toLowerCase(),sf=$('caseStatusFilter').value;
   $('caseList').innerHTML=cases.filter(x=>[x.title,x.description,pname(x.personId)].join(' ').toLowerCase().includes(cq)&&(!sf||x.status===sf)).map(x=>`
-    <article class="card"><div><h3>${esc(x.title)}</h3><div class="muted">${esc(pname(x.personId))}｜${esc(x.category)}｜承辦：${esc(x.assignee||'未指定')}</div><span class="badge">${esc(x.status)}</span></div>
+    <article class="card"><div><h3>${esc(x.title)}</h3><div class="muted">${esc(x.caseNumber||'未編號')}｜${esc(pname(x.personId))}｜${esc(x.category)}｜承辦：${esc(x.assignee||'未指定')}</div><span class="badge">${esc(x.status)}</span></div>
     ${canEdit()?`<button class="btn" onclick="openCase('${x.id}')">編輯</button>`:''}</article>`).join('')||'<div class="panel muted">尚無案件</div>';
 
   const tq=$('taskSearch').value.toLowerCase(),tf=$('taskStateFilter').value;
@@ -135,8 +145,26 @@ function render(){
 
   $('casePersonId').innerHTML='<option value="">未指定</option>'+people.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('');
   $('taskCaseId').innerHTML='<option value="">未指定</option>'+cases.map(x=>`<option value="${x.id}">${esc(x.title)}</option>`).join('');
+  renderReports();
 }
 function mini(title,meta,badge){return `<article class="card"><div><h3>${esc(title)}</h3><div class="muted">${esc(meta)}</div></div><span class="badge">${esc(badge||'')}</span></article>`}
+
+
+function renderBars(id,counts){
+  const entries=Object.entries(counts).sort((a,b)=>b[1]-a[1]),max=Math.max(1,...entries.map(x=>x[1]));
+  $(id).innerHTML=entries.length?entries.map(([k,v])=>`<div class="bar-row"><span>${esc(k)}</span><div class="bar-track"><div class="bar-fill" style="width:${v/max*100}%"></div></div><strong>${v}</strong></div>`).join(''):'<p class="muted">尚無資料</p>';
+}
+function renderReports(){
+  const status={},category={},village={},assignee={};
+  cases.forEach(x=>{
+    status[x.status||'未設定']=(status[x.status||'未設定']||0)+1;
+    category[x.category||'未設定']=(category[x.category||'未設定']||0)+1;
+    assignee[x.assignee||'未指定']=(assignee[x.assignee||'未指定']||0)+1;
+    const p=people.find(p=>p.id===x.personId);const v=p?.village||'未指定';
+    village[v]=(village[v]||0)+1;
+  });
+  renderBars('statusReport',status);renderBars('categoryReport',category);renderBars('villageReport',village);renderBars('assigneeReport',assignee);
+}
 
 function renderMembers(){
   $('memberList').innerHTML=members.map(x=>`
@@ -157,8 +185,8 @@ async function audit(action,entityType,entityId,summary){
   await addDoc(refs.audit,{action,entityType,entityId,summary,actorUid:user.uid,actorEmail:user.email||'',actorName:user.displayName||'',createdAt:serverTimestamp()});
 }
 
-window.openPerson=id=>{if(!canEdit())return;$('personForm').reset();$('personId').value='';$('deletePersonBtn').classList.toggle('hidden',!id);if(id){const x=people.find(y=>y.id===id);$('personId').value=id;$('personName').value=x.name||'';$('personPhone').value=x.phone||'';$('personVillage').value=x.village||'';$('personPref').value=x.contactPref||'';$('personAddress').value=x.address||'';$('personNotes').value=x.notes||'';$('personConsent').checked=!!x.consent}$('personDialog').showModal()};
-window.openCase=id=>{if(!canEdit())return;$('caseForm').reset();$('caseId').value='';$('deleteCaseBtn').classList.toggle('hidden',!id);if(id){const x=cases.find(y=>y.id===id);$('caseId').value=id;$('caseTitle').value=x.title||'';$('casePersonId').value=x.personId||'';$('caseCategory').value=x.category||'其他';$('caseStatus').value=x.status||'待處理';$('caseAssignee').value=x.assignee||'';$('caseFollowupDate').value=x.followupDate||'';$('casePriority').value=x.priority||'普通';$('caseDescription').value=x.description||'';$('caseResolution').value=x.resolution||''}$('caseDialog').showModal()};
+window.openPerson=id=>{if(!canEdit())return;$('personForm').reset();$('personId').value='';$('deletePersonBtn').classList.toggle('hidden',!id);if(id){const x=people.find(y=>y.id===id);$('personId').value=id;$('personName').value=x.name||'';$('personPhone').value=x.phone||'';$('personPhone2').value=x.phone2||'';$('personVillage').value=x.village||'';$('personNeighborhood').value=x.neighborhood||'';$('personBirthday').value=x.birthday||'';$('personLine').value=x.line||'';$('personEmail').value=x.email||'';$('personPref').value=x.contactPref||'';$('personTags').value=x.tags||'';$('personAddress').value=x.address||'';$('personNotes').value=x.notes||'';$('personConsent').checked=!!x.consent}$('personDialog').showModal()};
+window.openCase=id=>{if(!canEdit())return;$('caseForm').reset();$('caseId').value='';$('deleteCaseBtn').classList.toggle('hidden',!id);$('caseNumber').value=caseNo();$('caseCreatedDate').value=today();if(id){const x=cases.find(y=>y.id===id);$('caseId').value=id;$('caseNumber').value=x.caseNumber||'';$('caseCreatedDate').value=x.createdDate||'';$('caseTitle').value=x.title||'';$('casePersonId').value=x.personId||'';$('caseCategory').value=x.category||'其他';$('caseStatus').value=x.status||'待處理';$('caseAssignee').value=x.assignee||'';$('caseFollowupDate').value=x.followupDate||'';$('casePriority').value=x.priority||'普通';$('caseClosedDate').value=x.closedDate||'';$('caseDescription').value=x.description||'';$('caseResolution').value=x.resolution||''}$('caseDialog').showModal()};
 window.openTask=id=>{if(!canEdit())return;$('taskForm').reset();$('taskId').value='';$('deleteTaskBtn').classList.toggle('hidden',!id);if(id){const x=tasks.find(y=>y.id===id);$('taskId').value=id;$('taskTitle').value=x.title||'';$('taskDueDate').value=x.dueDate||'';$('taskPriority').value=x.priority||'普通';$('taskCaseId').value=x.caseId||'';$('taskOwner').value=x.owner||'';$('taskDone').checked=!!x.done}$('taskDialog').showModal()};
 
 $('addPersonBtn').onclick=()=>openPerson('');
@@ -167,8 +195,8 @@ $('addTaskBtn').onclick=()=>openTask('');
 ['peopleSearch','caseSearch','taskSearch'].forEach(id=>$(id).oninput=render);
 ['caseStatusFilter','taskStateFilter'].forEach(id=>$(id).onchange=render);
 
-$('personForm').onsubmit=async e=>{e.preventDefault();const id=$('personId').value,d={name:$('personName').value.trim(),phone:$('personPhone').value.trim(),village:$('personVillage').value.trim(),contactPref:$('personPref').value,address:$('personAddress').value.trim(),notes:$('personNotes').value.trim(),consent:$('personConsent').checked,updatedAt:serverTimestamp(),updatedBy:user.uid};if(id){await setDoc(doc(refs.people,id),d,{merge:true});await audit('修改','民眾',id,d.name)}else{const r=await addDoc(refs.people,{...d,createdAt:serverTimestamp(),createdBy:user.uid});await audit('新增','民眾',r.id,d.name)}$('personDialog').close()};
-$('caseForm').onsubmit=async e=>{e.preventDefault();const id=$('caseId').value,d={title:$('caseTitle').value.trim(),personId:$('casePersonId').value,category:$('caseCategory').value,status:$('caseStatus').value,assignee:$('caseAssignee').value.trim(),followupDate:$('caseFollowupDate').value,priority:$('casePriority').value,description:$('caseDescription').value.trim(),resolution:$('caseResolution').value.trim(),updatedAt:serverTimestamp(),updatedBy:user.uid};if(id){await setDoc(doc(refs.cases,id),d,{merge:true});await audit('修改','案件',id,d.title)}else{const r=await addDoc(refs.cases,{...d,createdAt:serverTimestamp(),createdBy:user.uid});await audit('新增','案件',r.id,d.title)}$('caseDialog').close()};
+$('personForm').onsubmit=async e=>{e.preventDefault();const id=$('personId').value,d={name:$('personName').value.trim(),phone:$('personPhone').value.trim(),phone2:$('personPhone2').value.trim(),village:$('personVillage').value.trim(),neighborhood:$('personNeighborhood').value.trim(),birthday:$('personBirthday').value,line:$('personLine').value.trim(),email:$('personEmail').value.trim(),contactPref:$('personPref').value,tags:$('personTags').value.trim(),address:$('personAddress').value.trim(),notes:$('personNotes').value.trim(),consent:$('personConsent').checked,updatedAt:serverTimestamp(),updatedBy:user.uid};if(id){await setDoc(doc(refs.people,id),d,{merge:true});await audit('修改','民眾',id,d.name)}else{const r=await addDoc(refs.people,{...d,createdAt:serverTimestamp(),createdBy:user.uid});await audit('新增','民眾',r.id,d.name)}$('personDialog').close()};if(id){await setDoc(doc(refs.people,id),d,{merge:true});await audit('修改','民眾',id,d.name)}else{const r=await addDoc(refs.people,{...d,createdAt:serverTimestamp(),createdBy:user.uid});await audit('新增','民眾',r.id,d.name)}$('personDialog').close()};
+$('caseForm').onsubmit=async e=>{e.preventDefault();const id=$('caseId').value,d={caseNumber:$('caseNumber').value||caseNo(),createdDate:$('caseCreatedDate').value||today(),title:$('caseTitle').value.trim(),personId:$('casePersonId').value,category:$('caseCategory').value,status:$('caseStatus').value,assignee:$('caseAssignee').value.trim(),followupDate:$('caseFollowupDate').value,priority:$('casePriority').value,closedDate:$('caseClosedDate').value,description:$('caseDescription').value.trim(),resolution:$('caseResolution').value.trim(),updatedAt:serverTimestamp(),updatedBy:user.uid};if(id){await setDoc(doc(refs.cases,id),d,{merge:true});await audit('修改','案件',id,d.title)}else{const r=await addDoc(refs.cases,{...d,createdAt:serverTimestamp(),createdBy:user.uid});await audit('新增','案件',r.id,d.title)}$('caseDialog').close()};if(id){await setDoc(doc(refs.cases,id),d,{merge:true});await audit('修改','案件',id,d.title)}else{const r=await addDoc(refs.cases,{...d,createdAt:serverTimestamp(),createdBy:user.uid});await audit('新增','案件',r.id,d.title)}$('caseDialog').close()};
 $('taskForm').onsubmit=async e=>{e.preventDefault();const id=$('taskId').value,d={title:$('taskTitle').value.trim(),dueDate:$('taskDueDate').value,priority:$('taskPriority').value,caseId:$('taskCaseId').value,owner:$('taskOwner').value.trim(),done:$('taskDone').checked,updatedAt:serverTimestamp(),updatedBy:user.uid};if(id){await setDoc(doc(refs.tasks,id),d,{merge:true});await audit('修改','追蹤',id,d.title)}else{const r=await addDoc(refs.tasks,{...d,createdAt:serverTimestamp(),createdBy:user.uid});await audit('新增','追蹤',r.id,d.title)}$('taskDialog').close()};
 
 $('deletePersonBtn').onclick=async()=>{const id=$('personId').value,x=people.find(y=>y.id===id);if(confirm('確定刪除？')){await deleteDoc(doc(refs.people,id));await audit('刪除','民眾',id,x?.name||'');$('personDialog').close()}};
@@ -185,6 +213,18 @@ $('inviteBtn').onclick=async()=>{
 };
 window.deleteInvite=async email=>{if(confirm('取消這個邀請？')){await deleteDoc(doc(refs.invites,email));await audit('取消邀請','成員',email,email)}};
 window.toggleMember=async(id,active)=>{await setDoc(doc(refs.members,id),{active,updatedAt:serverTimestamp(),updatedBy:user.uid},{merge:true});await audit(active?'啟用':'停用','成員',id,id)};
+
+
+$('exportPeopleCsv').onclick=()=>{
+  const headers=[['姓名','name'],['主要電話','phone'],['備用電話','phone2'],['里別','village'],['鄰別','neighborhood'],['生日','birthday'],['LINE','line'],['Email','email'],['地址','address'],['聯絡偏好','contactPref'],['標籤','tags'],['同意聯絡',x=>x.consent?'是':'否'],['備註','notes']];
+  const text='\ufeff'+[headers.map(h=>csvQuote(h[0])).join(','),...people.map(x=>headers.map(h=>csvQuote(typeof h[1]==='function'?h[1](x):x[h[1]])).join(','))].join('\n');
+  download(`民眾資料_${today()}.csv`,text,'text/csv;charset=utf-8');
+};
+$('exportCasesCsv').onclick=()=>{
+  const headers=[['案件編號','caseNumber'],['建立日期','createdDate'],['案件標題','title'],['民眾姓名',x=>pname(x.personId)],['類別','category'],['狀態','status'],['優先級','priority'],['承辦人','assignee'],['追蹤日期','followupDate'],['結案日期','closedDate'],['案件內容','description'],['處理紀錄','resolution']];
+  const text='\ufeff'+[headers.map(h=>csvQuote(h[0])).join(','),...cases.map(x=>headers.map(h=>csvQuote(typeof h[1]==='function'?h[1](x):x[h[1]])).join(','))].join('\n');
+  download(`案件資料_${today()}.csv`,text,'text/csv;charset=utf-8');
+};
 
 $('exportBtn').onclick=()=>{
   const a=document.createElement('a');
